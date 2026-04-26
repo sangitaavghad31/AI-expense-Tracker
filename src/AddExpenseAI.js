@@ -1,67 +1,73 @@
 import React, { useState } from "react";
-import { GoogleGenAI } from '@google/genai';
+import {GoogleGenAI} from '@google/genai';
 
 function AddExpenseAI({ onAdd }) {
   const [text, setText] = useState("");
-  const [expense, setExpenses] = useState()
   const [loading, setLoading] = useState(false);
-  const apiKey = process.env.REACT_APP_GIMINI_API_KEY;
+
+  const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
   const ai = new GoogleGenAI({apiKey: apiKey});
-  const parseExpense = (input) => {
-    // Very basic parsing logic
-    const words = input.split(" ");
-    let amount = "";
-    let title = "";
 
-    words.forEach((word) => {
-      if (!isNaN(word)) {
-        amount = word;
-      } else if (word.toLowerCase() !== "rupees") {
-        title += word + " ";
-      }
-    });
-
-    return {
-      title: title.trim() || "Quick Expense",
-      description: input,
-      amount: amount || "0",
-      date: new Date().toISOString().split("T")[0]
-    };
-  };
-
-  const handleAdd = async() => {
+  const handleAdd = async () => {
     if (!text) return;
+
     setLoading(true);
 
-    try{
-        const today = new Date().toISOString().split("T")[0];
-        const prompt =`
-        you are expense extraction assistant.
-        Extract details in JSON format from the text :${text}.
-        Include:
-        - title(short name of expense)
-        - amount(in number)
-        -category(like food, travel, etc)
-        -date(use current date:${today})`
+    try {
+      const today = new Date().toISOString().split("T")[0];
 
-        const response = await ai.models.generateContent({
-            model: "gemini-2.0-flash",
-            contents: prompt
-        })
-       const clearedText = (response.text || "")
-            .replace(/```json/gi, "")
-            .replace(/```/g, "")
-             .trim();
-             const data = JSON.parse(clearedText);
-             console.log("parse d", data);
-        const parsed = parseExpense(text);
-        onAdd(data);
+      const prompt = `
+You are an expense extraction assistant.
 
-        setText("");
-    }catch(e){
-        console.log("something went wrong",e);
+Extract structured data from this text:
+"${text}"
+
+Return ONLY valid JSON (no markdown, no backticks):
+
+{
+  "title": "",
+  "amount": number,
+  "category": "",
+  "date": "${today}",
+  "description": "${text}"
+}
+`;
+
+      const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      const rawText = response.text();
+
+      const cleaned = rawText
+        .replace(/```json/gi, "")
+        .replace(/```/g, "")
+        .trim();
+
+      const data = JSON.parse(cleaned);
+
+      onAdd({
+        id: Date.now(),
+        ...data
+      });
+
+      setText("");
+    } catch (e) {
+      console.log("Something went wrong:", e);
+
+      // fallback (simple parser)
+      const fallback = {
+        title: text,
+        amount: 0,
+        category: "unknown",
+        date: new Date().toISOString().split("T")[0],
+        description: text
+      };
+
+      onAdd(fallback);
     }
-   
+
+    setLoading(false);
   };
 
   return (
@@ -75,7 +81,9 @@ function AddExpenseAI({ onAdd }) {
         onChange={(e) => setText(e.target.value)}
       />
 
-      <button onClick={handleAdd}>Add with AI</button>
+      <button onClick={handleAdd} disabled={loading}>
+        {loading ? "Processing..." : "Add with AI"}
+      </button>
     </div>
   );
 }
